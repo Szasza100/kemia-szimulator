@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Kémiai Szimulátor - Laboratórium (Ultimate)</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #0a0a0a; color: #00ffcc; font-family: 'Segoe UI', sans-serif; user-select: none; }
+        #ui, #latticeUI { position: absolute; top: 10px; left: 10px; width: 390px; max-height: 95vh; overflow-y: auto; background: rgba(15, 15, 20, 0.95); border: 1px solid #00ffcc; padding: 15px; border-radius: 8px; z-index: 10; box-shadow: 0 0 15px rgba(0,255,204,0.2); }
+        h1 { font-size: 15px; margin-top: 0; color: #fff; text-transform: uppercase; border-bottom: 1px solid #00ffcc; padding-bottom: 5px; }
+        button, select, input { padding: 8px; margin: 5px 0; font-family: 'Segoe UI', sans-serif; }
+        button, select { background: #005544; color: white; border: 1px solid #00ffcc; font-weight: bold; border-radius: 4px; width: 100%; cursor: pointer; }
+        select { font-size: 13px; max-height: 250px; }
+        input[type=text], input[type=number] { width: 100%; box-sizing: border-box; background: #002211; color: #00ffcc; border: 1px solid #00ffcc; font-weight: bold; border-radius: 4px; user-select: text; text-align: center; }
+        input[type=number].inline-num { width: 70px; text-align: center; background: #005544; color: white; border: 1px solid #00ffcc; border-radius: 4px; display: inline-block; }
+        optgroup { background: #111; color: #00ffcc; font-style: normal; font-weight: bold; }
+        option { background: #003322; color: #fff; }
+        button:hover { background: #00aa88; color: black; }
+        .danger { background: #550000; border-color: #ff3333; color: #ff9999; }
+        .danger:hover { background: #aa0000; color: white; }
+        .subtract-btn { background: #773300; border-color: #ff8800; }
+        .subtract-btn:hover { background: #aa5500; }
+        .flex-row { display: flex; gap: 5px; }
+        #log { margin-top: 10px; height: 160px; overflow-y: auto; font-size: 13px; color: #cccccc; background: #000; padding: 10px; border: 1px solid #00ffcc; border-radius: 4px; line-height: 1.4; user-select: text; }
+        .log-warn { color: #ffcc00; } .log-ok { color: #00ff00; } .log-err { color: #ff3333; } .log-info { color: #00ffff; }
+        .slider-container { margin: 15px 0; background: #111; padding: 10px; border-radius: 4px; border: 1px solid #333; }
+        input[type=range] { width: 100%; cursor: pointer; margin-top: 5px; }
+        canvas.main { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
+        
+        #analysisPanel { display: none; margin-top: 15px; border-top: 2px dashed #00ffcc; padding-top: 10px; }
+        #beakerContainer { text-align: center; margin-bottom: 10px; }
+        #beakerCanvas { background: transparent; border-bottom: none; }
+        
+        #overlay { position: absolute; top: 10px; right: 25px; background: rgba(0,0,0,0.8); border: 1px solid #aaa; padding: 10px; border-radius: 8px; color: #fff; font-size: 14px; pointer-events: none; }
+        
+        #loaderContainer { display: none; position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(10,10,10,0.9); z-index: 100; flex-direction: column; justify-content: center; align-items: center; color: #00ffcc; font-size: 20px; font-weight: bold; }
+        .spinner { border: 6px solid #111; border-top: 6px solid #00ffcc; border-bottom: 6px solid #00ffcc; border-radius: 50%; width: 70px; height: 70px; animation: spin 1.5s linear infinite; margin-bottom: 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #progressContainer { display: none; position: absolute; bottom: 0; left: 0; width: 100%; height: 8px; background: #111; z-index: 101; }
+        #progressBar { height: 100%; width: 0%; background: #00ffcc; box-shadow: 0 0 10px #00ffcc; transition: width 0.1s; }
+    </style>
+</head>
+<body>
+
+    <div id="loaderContainer">
+        <div class="spinner"></div>
+        <div>MÉLYANALÍZIS ÉS STRUKTÚRA OPTIMALIZÁLÁS FOLYAMATBAN...</div>
+    </div>
+    
+    <div id="progressContainer"><div id="progressBar"></div></div>
+
+    <div id="ui">
+        <h1>Vegyület Szintetizátor</h1>
+        <input type="text" id="formulaInput" placeholder="Képlet (pl. C4H6O5 vagy H2O)" onkeypress="if(event.keyCode==13) addFormula()">
+        <div class="flex-row">
+            <button onclick="addFormula()" style="background:#007799;">+ HOZZÁAD</button>
+            <button onclick="removeFormula()" class="subtract-btn">- KIVON</button>
+        </div>
+
+        <h1 style="margin-top: 15px;">Elem Hozzáadása</h1>
+        <select id="elemSelect">
+            <optgroup label="1. Főcsoport (Alkálifémek)">
+                <option value="H">Hidrogén (H)</option>
+                <option value="Li">Lítium (Li)</option>
+                <option value="Na">Nátrium (Na)</option>
+                <option value="K">Kálium (K)</option>
+                <option value="Rb">Rubídium (Rb)</option>
+                <option value="Cs">Cézium (Cs)</option>
+                <option value="Fr">Francium (Fr) [Radioaktív]</option>
+            </optgroup>
+            <optgroup label="2. Főcsoport (Alkáliföldfémek)">
+                <option value="Be">Berillium (Be)</option>
+                <option value="Mg">Magnézium (Mg)</option>
+                <option value="Ca">Kalcium (Ca)</option>
+                <option value="Sr">Stroncium (Sr)</option>
+                <option value="Ba">Bárium (Ba)</option>
+                <option value="Ra">Rádium (Ra) [Radioaktív]</option>
+            </optgroup>
+            <optgroup label="3-4. Főcsoport">
+                <option value="B">Bór (B)</option>
+                <option value="Al">Alumínium (Al)</option>
+                <option value="Ga">Gallium (Ga)</option>
+                <option value="In">Indium (In)</option>
+                <option value="Tl">Tallium (Tl)</option>
+                <option value="Nh">Nihónium (Nh) [Mesterséges]</option>
+                <option value="C">Szén (C)</option>
+                <option value="Si">Szilícium (Si)</option>
+                <option value="Ge">Germánium (Ge)</option>
+                <option value="Sn">Ón (Sn)</option>
+                <option value="Pb">Ólom (Pb)</option>
+                <option value="Fl">Fleróvium (Fl) [Mesterséges]</option>
+            </optgroup>
+            <optgroup label="5-6. Főcsoport">
+                <option value="N">Nitrogén (N)</option>
+                <option value="P">Foszfor (P)</option>
+                <option value="As">Arzén (As)</option>
+                <option value="Sb">Antimon (Sb)</option>
+                <option value="Bi">Bizmuth (Bi)</option>
+                <option value="Mc">Moszkovium (Mc) [Mesterséges]</option>
+                <option value="O">Oxigén (O)</option>
+                <option value="S">Kén (S)</option>
+                <option value="Se">Szelén (Se)</option>
+                <option value="Te">Tellúr (Te)</option>
+                <option value="Po">Polónium (Po) [Radioaktív]</option>
+                <option value="Lv">Livermórium (Lv) [Mesterséges]</option>
+            </optgroup>
+            <optgroup label="7-8. Főcsoport (Halogének / Nemesgázok)">
+                <option value="F">Fluor (F)</option>
+                <option value="Cl">Klór (Cl)</option>
+                <option value="Br">Bróm (Br)</option>
+                <option value="I">Jód (I)</option>
+                <option value="At">Asztácium (At) [Radioaktív]</option>
+                <option value="Ts">Tennesszium (Ts) [Mesterséges]</option>
+                <option value="He">Hélium (He)</option>
+                <option value="Ne">Neon (Ne)</option>
+                <option value="Ar">Argon (Ar)</option>
+                <option value="Kr">Kripton (Kr)</option>
+                <option value="Xe">Xenon (Xe)</option>
+                <option value="Rn">Radon (Rn) [Radioaktív]</option>
+                <option value="Og">Oganesszon (Og) [Mesterséges]</option>
+            </optgroup>
+            <optgroup label="Mellékcsoportok (Átmenetifémek)">
+                <option value="Sc">Szkandium (Sc)</option>
+                <option value="Ti">Titán (Ti)</option>
+                <option value="V">Vanádium (V)</option>
+                <option value="Cr">Króm (Cr)</option>
+                <option value="Mn">Mangán (Mn)</option>
+                <option value="Fe">Vas (Fe)</option>
+                <option value="Co">Kobalt (Co)</option>
+                <option value="Ni">Nikkel (Ni)</option>
+                <option value="Cu">Réz (Cu)</option>
+                <option value="Zn">Cink (Zn)</option>
+                <option value="Y">Ittrium (Y)</option>
+                <option value="Zr">Cirkónium (Zr)</option>
+                <option value="Nb">Nióbium (Nb)</option>
+                <option value="Mo">Molibdén (Mo)</option>
+                <option value="Tc">Technécium (Tc) [Radioaktív]</option>
+                <option value="Ru">Ruténium (Ru)</option>
+                <option value="Rh">Ródium (Rh)</option>
+                <option value="Pd">Palládium (Pd)</option>
+                <option value="Ag">Ezüst (Ag)</option>
+                <option value="Cd">Kadmium (Cd)</option>
+                <option value="Hf">Hafnium (Hf)</option>
+                <option value="Ta">Tantál (Ta)</option>
+                <option value="W">Volfrám (W)</option>
+                <option value="Re">Rénium (Re)</option>
+                <option value="Os">Ozmium (Os)</option>
+                <option value="Ir">Irídium (Ir)</option>
+                <option value="Pt">Platina (Pt)</option>
+                <option value="Au">Arany (Au)</option>
+                <option value="Hg">Higany (Hg)</option>
+            </optgroup>
+            <optgroup label="Lantanoidák">
+                <option value="La">Lantán (La)</option>
+                <option value="Ce">Cérium (Ce)</option>
+                <option value="Pr">Prazeodímium (Pr)</option>
+                <option value="Nd">Neodímium (Nd)</option>
+                <option value="Pm">Prométium (Pm) [Radioaktív]</option>
+                <option value="Sm">Szamárium (Sm)</option>
+                <option value="Eu">Európium (Eu)</option>
+                <option value="Gd">Gadolínium (Gd)</option>
+                <option value="Tb">Terbium (Tb)</option>
+                <option value="Dy">Diszprózium (Dy)</option>
+                <option value="Ho">Holmium (Ho)</option>
+                <option value="Er">Erbium (Er)</option>
+                <option value="Tm">Túlium (Tm)</option>
+                <option value="Yb">Itterbium (Yb)</option>
+                <option value="Lu">Lutécium (Lu)</option>
+            </optgroup>
+            <optgroup label="Aktinoidák">
+                <option value="Ac">Aktínium (Ac) [Radioaktív]</option>
+                <option value="Th">Tórium (Th) [Radioaktív]</option>
+                <option value="Pa">Protaktínium (Pa) [Radioaktív]</option>
+                <option value="U">Urán (U) [Radioaktív]</option>
+                <option value="Np">Neptúnium (Np) [Radioaktív]</option>
+                <option value="Pu">Plutónium (Pu) [Radioaktív]</option>
+                <option value="Am">Amerícium (Am) [Radioaktív]</option>
+                <option value="Cm">Kűrium (Cm) [Radioaktív]</option>
+                <option value="Bk">Berkélium (Bk) [Radioaktív]</option>
+                <option value="Cf">Kalifornium (Cf) [Radioaktív]</option>
+                <option value="Es">Einsteinium (Es) [Radioaktív]</option>
+                <option value="Fm">Fermium (Fm) [Radioaktív]</option>
+                <option value="Md">Mendelévium (Md) [Radioaktív]</option>
+                <option value="No">Nobélium (No) [Radioaktív]</option>
+                <option value="Lr">Lorencium (Lr) [Radioaktív]</option>
+            </optgroup>
+            <optgroup label="Transzaktinoidák (Szupernehéz / Mesterséges)">
+                <option value="Rf">Rutherfordium (Rf)</option>
+                <option value="Db">Dubnium (Db)</option>
+                <option value="Sg">Sziborgium (Sg)</option>
+                <option value="Bh">Bohrium (Bh)</option>
+                <option value="Hs">Hasszium (Hs)</option>
+                <option value="Mt">Meitnérium (Mt)</option>
+                <option value="Ds">Darmstadtium (Ds)</option>
+                <option value="Rg">Röntgénium (Rg)</option>
+                <option value="Cn">Kopernícium (Cn)</option>
+            </optgroup>
+        </select>
+        <button onclick="addSingleAtom()">+ 1 ATOM BEDOBÁSA</button>
+        <button onclick="resetSim()" class="danger">TÉR TÖRLÉSE</button>
+
+        <div class="slider-container">
+            <div>
+                Hőmérséklet: 
+                <input type="number" id="tempNumber" class="inline-num" value="293" onchange="updateTempFromNumber()" oninput="updateTempFromNumber()">
+                <strong id="tempUnitLabel">K</strong>
+                <span id="zeroCMarker" style="color:#aaa; font-size:11px; margin-left:10px;">(0°C = 273K)</span>
+            </div>
+            <div style="font-size:11px; margin-top:5px;">
+                Mértékegység: 
+                <label><input type="radio" name="tempUnit" value="K" checked onclick="changeUnit()"> Kelvin</label>
+                <label><input type="radio" name="tempUnit" value="C" onclick="changeUnit()"> Celsius</label>
+            </div>
+            <input type="range" id="tempSlider" min="0" max="4000" value="293" onchange="updateTempFromSlider()" oninput="updateTempFromSlider()">
+        </div>
+
+        <h1>Laboratóriumi Elemzés</h1>
+        <button onclick="startAnalysis()" style="background:#ff9900; color:black;">KIÉRTÉKELÉS</button>
+        
+        <div id="analysisPanel">
+            <div id="beakerContainer">
+                <canvas id="beakerCanvas" width="100" height="120"></canvas>
+            </div>
+            <button onclick="enterLatticeView()" style="background:#6600cc;">RÁCSSZERKEZET VIZSGÁLATA</button>
+        </div>
+        
+        <div id="log">A laboratórium üres. Adj hozzá atomokat képlettel vagy manuálisan!</div>
+    </div>
+
+    <div id="latticeUI" style="display:none;">
+        <h1>Rácsszerkezet 3D Tér</h1>
+        <div style="margin-bottom:10px; color:#fff;">
+            Részecskék (ismétlődő egységek) száma tengelyenként (x, y, z):<br>
+            <input type="number" id="latticeCount" value="2" min="1" max="5" style="margin-top:5px;">
+        </div>
+        <button onclick="generateLattice()" style="background:#007799;">Szerkezet Generálása</button>
+        <button onclick="exitLatticeView()" class="danger" style="margin-top:10px;">Vissza a laborba</button>
+        <div id="latticeInfo" style="margin-top:15px; padding: 10px; background: rgba(0, 255, 204, 0.1); border: 1px solid #00ffcc; border-radius: 4px; font-size: 13px; color: #fff; line-height: 1.5;"></div>
+    </div>
+
+    <div id="overlay">
+        <strong>Eligazítás:</strong> Itt az egér lenyomásával lehet körbenézni a térben.<br><br>
+        <strong>Állapot:</strong> <span id="stateDisplay">Nincs atom</span><br>
+        <strong>Mozgás:</strong> <span id="motionDisplay">-</span>
+    </div>
+
+    <canvas id="simCanvas" class="main"></canvas>
+
+<script>
+    // Teljes Kémiai Adatbázis kibővítve
+    var Elements = {
+        'H':  { mass: 1.0,   valence: 1, maxBonds: 1, color: '#ffffff', radius: 10 },
+        'Li': { mass: 6.9,   valence: 1, maxBonds: 1, color: '#cc66ff', radius: 21 },
+        'Na': { mass: 23.0,  valence: 1, maxBonds: 1, color: '#c084fc', radius: 25 },
+        'K':  { mass: 39.1,  valence: 1, maxBonds: 1, color: '#aa44ff', radius: 28 },
+        'Rb': { mass: 85.5,  valence: 1, maxBonds: 1, color: '#9922ff', radius: 30 },
+        'Cs': { mass: 132.9, valence: 1, maxBonds: 1, color: '#7700ff', radius: 33 },
+        'Fr': { mass: 223.0, valence: 1, maxBonds: 1, color: '#420066', radius: 35 }, 
+        'Be': { mass: 9.0,   valence: 2, maxBonds: 2, color: '#aaddaa', radius: 16 },
+        'Mg': { mass: 24.3,  valence: 2, maxBonds: 2, color: '#88ccaa', radius: 23 },
+        'Ca': { mass: 40.1,  valence: 2, maxBonds: 2, color: '#66aa88', radius: 26 },
+        'Sr': { mass: 87.6,  valence: 2, maxBonds: 2, color: '#448866', radius: 29 },
+        'Ba': { mass: 137.3, valence: 2, maxBonds: 2, color: '#226644', radius: 32 },
+        'Ra': { mass: 226.0, valence: 2, maxBonds: 2, color: '#007d00', radius: 33 }, 
+        'B':  { mass: 10.8,  valence: 3, maxBonds: 4, color: '#ffb3b3', radius: 14 },
+        'Al': { mass: 27.0,  valence: 3, maxBonds: 4, color: '#b3b3b3', radius: 22 },
+        'Ga': { mass: 69.7,  valence: 3, maxBonds: 4, color: '#a3a3a3', radius: 21 },
+        'In': { mass: 114.8, valence: 3, maxBonds: 4, color: '#a67573', radius: 23 },
+        'Tl': { mass: 204.4, valence: 1, maxBonds: 3, color: '#a6544d', radius: 24 },
+        'Nh': { mass: 286.0, valence: 3, maxBonds: 3, color: '#eb0026', radius: 20 },
+        'C':  { mass: 12.0,  valence: 4, maxBonds: 4, color: '#444444', radius: 18 },
+        'Si': { mass: 28.1,  valence: 4, maxBonds: 4, color: '#8c7373', radius: 21 },
+        'Ge': { mass: 72.6,  valence: 4, maxBonds: 4, color: '#738c8c', radius: 21 },
+        'Sn': { mass: 118.7, valence: 4, maxBonds: 4, color: '#999999', radius: 24 },
+        'Pb': { mass: 207.2, valence: 4, maxBonds: 4, color: '#555555', radius: 25 },
+        'Fl': { mass: 289.0, valence: 4, maxBonds: 4, color: '#eb0026', radius: 20 },
+        'N':  { mass: 14.0,  valence: 3, maxBonds: 4, color: '#3b82f6', radius: 16 },
+        'P':  { mass: 31.0,  valence: 3, maxBonds: 5, color: '#ff9900', radius: 20 },
+        'As': { mass: 74.9,  valence: 3, maxBonds: 5, color: '#cc6600', radius: 21 },
+        'Sb': { mass: 121.8, valence: 3, maxBonds: 5, color: '#996633', radius: 23 },
+        'Bi': { mass: 209.0, valence: 3, maxBonds: 5, color: '#994499', radius: 24 },
+        'Mc': { mass: 290.0, valence: 3, maxBonds: 3, color: '#eb0026', radius: 20 },
+        'O':  { mass: 16.0,  valence: 2, maxBonds: 2, color: '#ef4444', radius: 15 },
+        'S':  { mass: 32.1,  valence: 2, maxBonds: 6, color: '#eab308', radius: 19 },
+        'Se': { mass: 79.0,  valence: 2, maxBonds: 6, color: '#cc9900', radius: 20 },
+        'Te': { mass: 127.6, valence: 2, maxBonds: 6, color: '#997700', radius: 22 },
+        'Po': { mass: 209.0, valence: 2, maxBonds: 6, color: '#ab5c00', radius: 23 },
+        'Lv': { mass: 293.0, valence: 2, maxBonds: 2, color: '#eb0026', radius: 20 },
+        'F':  { mass: 19.0,  valence: 1, maxBonds: 1, color: '#bef264', radius: 14 },
+        'Cl': { mass: 35.5,  valence: 1, maxBonds: 1, color: '#84cc16', radius: 21 },
+        'Br': { mass: 79.9,  valence: 1, maxBonds: 1, color: '#993300', radius: 22 },
+        'I':  { mass: 126.9, valence: 1, maxBonds: 1, color: '#660099', radius: 24 },
+        'At': { mass: 210.0, valence: 1, maxBonds: 1, color: '#754f45', radius: 24 },
+        'Ts': { mass: 294.0, valence: 1, maxBonds: 1, color: '#eb0026', radius: 20 },
+        'He': { mass: 4.0,   valence: 0, maxBonds: 0, color: '#ffccff', radius: 11 },
+        'Ne': { mass: 20.0,  valence: 0, maxBonds: 0, color: '#ff9966', radius: 13 },
+        'Ar': { mass: 39.9,  valence: 0, maxBonds: 0, color: '#cc99ff', radius: 18 },
+        'Kr': { mass: 83.8,  valence: 0, maxBonds: 0, color: '#99ccff', radius: 20 },
+        'Xe': { mass: 131.3, valence: 0, maxBonds: 0, color: '#6699ff', radius: 22 },
+        'Rn': { mass: 222.0, valence: 0, maxBonds: 0, color: '#428296', radius: 24 },
+        'Og': { mass: 294.0, valence: 0, maxBonds: 0, color: '#eb0026', radius: 20 },
+        'Sc': { mass: 45.0,  valence: 3, maxBonds: 6, color: '#e6e6e6', radius: 21 },
+        'Ti': { mass: 47.9,  valence: 4, maxBonds: 6, color: '#bfbfbf', radius: 21 },
+        'V':  { mass: 50.9,  valence: 5, maxBonds: 6, color: '#a6a6a6', radius: 20 },
+        'Cr': { mass: 52.0,  valence: 3, maxBonds: 6, color: '#8a99c7', radius: 20 },
+        'Mn': { mass: 54.9,  valence: 2, maxBonds: 6, color: '#9c7ac7', radius: 20 },
+        'Fe': { mass: 55.8,  valence: 3, maxBonds: 6, color: '#b35900', radius: 20 },
+        'Co': { mass: 58.9,  valence: 2, maxBonds: 6, color: '#3366ff', radius: 20 },
+        'Ni': { mass: 58.7,  valence: 2, maxBonds: 6, color: '#50d050', radius: 20 },
+        'Cu': { mass: 63.5,  valence: 2, maxBonds: 4, color: '#c88033', radius: 20 },
+        'Zn': { mass: 65.4,  valence: 2, maxBonds: 4, color: '#7d80a0', radius: 21 },
+        'Y':  { mass: 88.9,  valence: 3, maxBonds: 6, color: '#94ffff', radius: 23 },
+        'Zr': { mass: 91.2,  valence: 4, maxBonds: 6, color: '#94e0e0', radius: 22 },
+        'Nb': { mass: 92.9,  valence: 5, maxBonds: 6, color: '#73c2c9', radius: 21 },
+        'Mo': { mass: 95.9,  valence: 6, maxBonds: 6, color: '#54b5b5', radius: 20 },
+        'Tc': { mass: 98.0,  valence: 7, maxBonds: 6, color: '#3b9e9e', radius: 20 }, 
+        'Ru': { mass: 101.1, valence: 3, maxBonds: 6, color: '#248f8f', radius: 20 },
+        'Rh': { mass: 102.9, valence: 3, maxBonds: 6, color: '#0a7d8c', radius: 20 },
+        'Pd': { mass: 106.4, valence: 2, maxBonds: 6, color: '#006985', radius: 20 },
+        'Ag': { mass: 107.9, valence: 1, maxBonds: 2, color: '#e6e6e6', radius: 23 },
+        'Cd': { mass: 112.4, valence: 2, maxBonds: 4, color: '#ffd98f', radius: 22 },
+        'Hf': { mass: 178.5, valence: 4, maxBonds: 6, color: '#4dc2ff', radius: 22 },
+        'Ta': { mass: 180.9, valence: 5, maxBonds: 6, color: '#4da6ff', radius: 21 },
+        'W':  { mass: 183.8, valence: 6, maxBonds: 6, color: '#4da6ff', radius: 24 },
+        'Re': { mass: 186.2, valence: 7, maxBonds: 6, color: '#267dab', radius: 20 },
+        'Os': { mass: 190.2, valence: 4, maxBonds: 6, color: '#266696', radius: 20 },
+        'Ir': { mass: 192.2, valence: 4, maxBonds: 6, color: '#175487', radius: 20 },
+        'Pt': { mass: 195.1, valence: 4, maxBonds: 6, color: '#d0d0e0', radius: 24 },
+        'Au': { mass: 197.0, valence: 3, maxBonds: 4, color: '#ffd700', radius: 24 },
+        'Hg': { mass: 200.6, valence: 2, maxBonds: 2, color: '#b8b8d0', radius: 23 },
+        'Rf': { mass: 267.0, valence: 4, maxBonds: 6, color: '#cc0059', radius: 22 },
+        'Db': { mass: 268.0, valence: 5, maxBonds: 6, color: '#d1004f', radius: 21 }, 
+        'Sg': { mass: 269.0, valence: 6, maxBonds: 6, color: '#d90045', radius: 20 }, 
+        'Bh': { mass: 270.0, valence: 7, maxBonds: 6, color: '#e00038', radius: 20 }, 
+        'Hs': { mass: 277.0, valence: 8, maxBonds: 6, color: '#e6002e', radius: 20 }, 
+        'Mt': { mass: 278.0, valence: 0, maxBonds: 0, color: '#eb0026', radius: 20 }, 
+        'Ds': { mass: 281.0, valence: 0, maxBonds: 0, color: '#eb0026', radius: 20 }, 
+        'Rg': { mass: 282.0, valence: 0, maxBonds: 0, color: '#eb0026', radius: 20 }, 
+        'Cn': { mass: 285.0, valence: 2, maxBonds: 2, color: '#eb0026', radius: 20 }, 
+        'La': { mass: 138.9, valence: 3, maxBonds: 6, color: '#70d4ff', radius: 24 },
+        'Ce': { mass: 140.1, valence: 3, maxBonds: 6, color: '#ffffc7', radius: 24 },
+        'Pr': { mass: 140.9, valence: 3, maxBonds: 6, color: '#d9ffc7', radius: 24 },
+        'Nd': { mass: 144.2, valence: 3, maxBonds: 6, color: '#c7ffc7', radius: 24 },
+        'Pm': { mass: 145.0, valence: 3, maxBonds: 6, color: '#a3ffc7', radius: 24 }, 
+        'Sm': { mass: 150.4, valence: 3, maxBonds: 6, color: '#8fffc7', radius: 24 },
+        'Eu': { mass: 152.0, valence: 3, maxBonds: 6, color: '#61ffc7', radius: 24 },
+        'Gd': { mass: 157.3, valence: 3, maxBonds: 6, color: '#45ffc7', radius: 24 },
+        'Tb': { mass: 158.9, valence: 3, maxBonds: 6, color: '#30ffc7', radius: 24 },
+        'Dy': { mass: 162.5, valence: 3, maxBonds: 6, color: '#1fffc7', radius: 24 },
+        'Ho': { mass: 164.9, valence: 3, maxBonds: 6, color: '#00ff9c', radius: 24 },
+        'Er': { mass: 167.3, valence: 3, maxBonds: 6, color: '#00e675', radius: 24 },
+        'Tm': { mass: 168.9, valence: 3, maxBonds: 6, color: '#00d452', radius: 24 },
+        'Yb': { mass: 173.1, valence: 3, maxBonds: 6, color: '#00bf38', radius: 24 },
+        'Lu': { mass: 175.0, valence: 3, maxBonds: 6, color: '#00ab24', radius: 24 },
+        'Ac': { mass: 227.0, valence: 3, maxBonds: 6, color: '#70abfa', radius: 25 }, 
+        'Th': { mass: 232.0, valence: 4, maxBonds: 6, color: '#00baff', radius: 25 }, 
+        'Pa': { mass: 231.0, valence: 5, maxBonds: 6, color: '#00a1ff', radius: 25 }, 
+        'U':  { mass: 238.0, valence: 6, maxBonds: 6, color: '#00ff00', radius: 28 },
+        'Np': { mass: 237.0, valence: 5, maxBonds: 6, color: '#0080ff', radius: 25 }, 
+        'Pu': { mass: 244.0, valence: 4, maxBonds: 6, color: '#006bff', radius: 25 }, 
+        'Am': { mass: 243.0, valence: 3, maxBonds: 6, color: '#545cf2', radius: 25 }, 
+        'Cm': { mass: 247.0, valence: 3, maxBonds: 6, color: '#785ce3', radius: 25 }, 
+        'Bk': { mass: 247.0, valence: 3, maxBonds: 6, color: '#8a4fe3', radius: 25 }, 
+        'Cf': { mass: 251.0, valence: 3, maxBonds: 6, color: '#a136d4', radius: 25 }, 
+        'Es': { mass: 252.0, valence: 3, maxBonds: 6, color: '#b31fd4', radius: 25 }, 
+        'Fm': { mass: 257.0, valence: 3, maxBonds: 6, color: '#b31fba', radius: 25 }, 
+        'Md': { mass: 258.0, valence: 3, maxBonds: 6, color: '#b30da6', radius: 25 }, 
+        'No': { mass: 259.0, valence: 2, maxBonds: 6, color: '#bd0d87', radius: 25 }, 
+        'Lr': { mass: 262.0, valence: 3, maxBonds: 6, color: '#c70066', radius: 25 }
+    };
+
+    var KnownCompounds = {
+        "H2O": { melt: 273, boil: 373, name: "Víz (Dihidrogén-monoxid)", info: "Univerzális poláris oldószer." },
+        "CO2": { melt: 216, boil: 194, name: "Szén-dioxid", info: "Légzés végterméke, üvegházgáz. Szublimál!" },
+        "O2": { melt: 54, boil: 90, name: "Oxigén gáz", info: "Élethez szükséges, reaktív kétatomos gáz." },
+        "O3": { melt: 80, boil: 161, name: "Ózon", info: "Erős oxidálószer, UV szűrő." },
+        "NaCl": { melt: 1074, boil: 1738, name: "Nátrium-klorid (Só)", info: "Ionrácsos szerkezetű kristály." },
+        "CH4": { melt: 90, boil: 111, name: "Metán", info: "Földgáz fő komponense, gyúlékony." },
+        "NH3": { melt: 195, boil: 239, name: "Ammónia", info: "Szúrós szagú, lúgos kémhatású gáz." },
+        "C4H6O5": { melt: 403, boil: 413, name: "Almasav (Malic acid)", info: "Dikarbonsav, a gyümölcsök (pl. alma) savanykás ízét adja." }
+    };
+
+    var NonMetals = ['H','B','C','Si','Ge','As','Sb','Te','N','P','O','S','Se','F','Cl','Br','I','At','Ts','He','Ne','Ar','Kr','Xe','Rn','Og'];
+
+    var canvas = document.getElementById('simCanvas');
+    var ctx = canvas.getContext('2d');
+    var bCanvas = document.getElementById('beakerCanvas');
+    var bCtx = bCanvas.getContext('2d');
+    
+    var width = window.innerWidth;
+    var height = window.innerHeight;
+    canvas.width = width; canvas.height = height;
+
+    var atoms = [];
+    var bonds = []; 
+    var camX = 0, camY = 0, camZ = 700;
+    var rotX = 0, rotY = 0; 
+    var isDragging = false;
+    var lastMouseX = 0, lastMouseY = 0;
+
+    var currentTempK = 293; 
+    var sysState = "Nincs atom";
+    var sysMotion = "-";
+    var predictedMelt = 0;
+    var predictedBoil = 0;
+    
+    var isAnalyzing = false;
+    var analysisProgress = 0;
+    var spaceBounds = 300; 
+
+    var savedAtoms = [];
+    var savedBonds = [];
+    var isLatticeMode = false;
+
+    window.onresize = function() { 
+        width = window.innerWidth; height = window.innerHeight; 
+        canvas.width = width; canvas.height = height; 
+    };
+    
+    canvas.onmousedown = function(e) { isDragging = true; lastMouseX = e.clientX; lastMouseY = e.clientY; };
+    canvas.onmouseup = function() { isDragging = false; };
+    canvas.onmouseleave = function() { isDragging = false; };
+    canvas.onmousemove = function(e) {
+        if (isDragging) {
+            rotY += (e.clientX - lastMouseX) * 0.01;
+            rotX += (e.clientY - lastMouseY) * 0.01;
+            lastMouseX = e.clientX; lastMouseY = e.clientY;
+        }
+    };
+
+    function getSelectedUnit() { var r = document.getElementsByName('tempUnit'); for(var i=0;i<r.length;i++) if(r[i].checked) return r[i].value; return "K"; }
+
+    function updateUI() {
+        var unit = getSelectedUnit();
+        var numInput = document.getElementById('tempNumber');
+        var slider = document.getElementById('tempSlider');
+        slider.value = currentTempK;
+        if (unit === 'K') { numInput.value = currentTempK; document.getElementById('tempUnitLabel').innerText = "K"; document.getElementById('zeroCMarker').style.display = "inline"; } 
+        else { numInput.value = currentTempK - 273; document.getElementById('tempUnitLabel').innerText = "°C"; document.getElementById('zeroCMarker').style.display = "none"; }
+        evaluateStateOfMatter();
+    }
+
+    function updateTempFromSlider() { currentTempK = parseInt(document.getElementById('tempSlider').value); updateUI(); }
+    function updateTempFromNumber() {
+        var val = parseInt(document.getElementById('tempNumber').value) || 0;
+        var unit = getSelectedUnit();
+        currentTempK = (unit === 'C') ? val + 273 : val;
+        if (currentTempK < 0) currentTempK = 0;
+        if (currentTempK > 4000) currentTempK = 4000;
+        updateUI();
+    }
+    function changeUnit() { updateUI(); }
+    function log(msg, type) { type = type || 'info'; var logDiv = document.getElementById('log'); logDiv.innerHTML += '<div class="log-' + type + '">' + msg + '</div>'; logDiv.scrollTop = logDiv.scrollHeight; }
+
+    function Vector3(x, y, z) { this.x = x; this.y = y; this.z = z; }
+
+    function Atom(symbol, x, y, z) {
+        this.id = Math.random().toString(36).substr(2, 9);
+        this.symbol = symbol;
+        this.data = Elements[symbol];
+        this.pos = new Vector3(x, y, z);
+        this.vel = new Vector3(0, 0, 0);
+        this.force = new Vector3(0, 0, 0);
+        this.connected = []; 
+    }
+
+    function addSingleAtom() {
+        var symbol = document.getElementById('elemSelect').value;
+        spawnAtom(symbol);
+        hideAnalysis();
+    }
+
+    function addFormula() {
+        var input = document.getElementById('formulaInput').value.trim();
+        if(!input) return;
+        
+        var re = /([A-Z][a-z]*)(\d*)/g;
+        var match; var added = 0; var unknowns = [];
+        
+        while ((match = re.exec(input)) !== null) {
+            var sym = match[1];
+            var count = match[2] === "" ? 1 : parseInt(match[2]);
+            if (Elements[sym]) {
+                for(var i=0; i<count; i++) { spawnAtom(sym); added++; }
+            } else unknowns.push(sym);
+        }
+        
+        if (unknowns.length > 0) log("Ismeretlen elem(ek): " + unknowns.join(", "), "err");
+        if (added > 0) { log("Szintetizálva: " + input + " (" + added + " atom bedobva)", "info"); hideAnalysis(); }
+        document.getElementById('formulaInput').value = ""; 
+    }
+
+    function removeFormula() {
+        var input = document.getElementById('formulaInput').value.trim();
+        if(!input) return;
+        
+        var re = /([A-Z][a-z]*)(\d*)/g;
+        var match; var toRemoveDict = {};
+        
+        while ((match = re.exec(input)) !== null) {
+            var sym = match[1];
+            var count = match[2] === "" ? 1 : parseInt(match[2]);
+            toRemoveDict[sym] = (toRemoveDict[sym] || 0) + count;
+        }
+
+        var removedCount = 0;
+        for (var sym in toRemoveDict) {
+            var needed = toRemoveDict[sym];
+            for (var k = 0; k < needed; k++) {
+                var candidates = atoms.filter(function(a) { return a.symbol === sym; });
+                if (candidates.length === 0) break; 
+                
+                candidates.sort(function(a, b) { return a.connected.length - b.connected.length; });
+                var target = candidates[0];
+                var tIndex = atoms.indexOf(target);
+                
+                if (tIndex > -1) {
+                    atoms.splice(tIndex, 1);
+                    removedCount++;
+                    for (var m = bonds.length - 1; m >= 0; m--) {
+                        if (bonds[m].a.id === target.id || bonds[m].b.id === target.id) {
+                            var other = (bonds[m].a.id === target.id) ? bonds[m].b : bonds[m].a;
+                            var cIdx = other.connected.indexOf(target.id);
+                            if (cIdx > -1) other.connected.splice(cIdx, 1);
+                            bonds.splice(m, 1);
+                        }
+                    }
+                }
+            }
+        }
+        
+        if(removedCount > 0) log("Kivonva: " + input + " (" + removedCount + " atom törölve a térből)", "warn");
+        else log("Nem található kivonható " + input + " a térben.", "err");
+        
+        document.getElementById('formulaInput').value = "";
+        hideAnalysis();
+        evaluateStateOfMatter();
+    }
+
+    function spawnAtom(symbol) {
+        var a = new Atom(symbol, (Math.random() - 0.5) * 100, (Math.random() - 0.5) * 100, (Math.random() - 0.5) * 100);
+        atoms.push(a);
+    }
+
+    function resetSim() { 
+        atoms = []; bonds = []; predictedMelt = 0; predictedBoil = 0; 
+        hideAnalysis();
+        document.getElementById('log').innerHTML = '<div class="log-err">Tér kiürítve.</div>'; 
+        sysState = "Nincs atom"; evaluateStateOfMatter();
+    }
+
+    function hideAnalysis() {
+        document.getElementById('analysisPanel').style.display = 'none';
+    }
+
+    function indexOfVal(arr, val) { for (var i = 0; i < arr.length; i++) if (arr[i] === val) return i; return -1; }
+
+    function createBond(a, b) {
+        if (indexOfVal(a.connected, b.id) === -1 && indexOfVal(b.connected, a.id) === -1) {
+            a.connected.push(b.id); b.connected.push(a.id);
+            bonds.push({ a: a, b: b, idealDist: a.data.radius + b.data.radius });
+        }
+    }
+
+    function updatePhysics() {
+        var kineticFactor = (currentTempK / 300) * 0.5;
+        
+        for (var i = 0; i < atoms.length; i++) {
+            var a = atoms[i];
+            a.force.x = (Math.random() - 0.5) * kineticFactor * (10 / Math.max(2, a.data.mass));
+            a.force.y = (Math.random() - 0.5) * kineticFactor * (10 / Math.max(2, a.data.mass));
+            a.force.z = (Math.random() - 0.5) * kineticFactor * (10 / Math.max(2, a.data.mass));
+            
+            if (a.pos.x > spaceBounds) { a.pos.x = spaceBounds; a.vel.x *= -0.8; }
+            if (a.pos.x < -spaceBounds) { a.pos.x = -spaceBounds; a.vel.x *= -0.8; }
+            if (a.pos.z > spaceBounds) { a.pos.z = spaceBounds; a.vel.z *= -0.8; }
+            if (a.pos.z < -spaceBounds) { a.pos.z = -spaceBounds; a.vel.z *= -0.8; }
+            if (a.pos.y > spaceBounds) { a.pos.y = spaceBounds; a.vel.y *= -0.8; }
+            if (a.pos.y < -spaceBounds) { a.pos.y = -spaceBounds; a.vel.y *= -0.8; }
+        }
+
+        var toRemoveBonds = [];
+
+        for (var i = 0; i < atoms.length; i++) {
+            for (var j = i + 1; j < atoms.length; j++) {
+                var a = atoms[i], b = atoms[j];
+                var dx = b.pos.x - a.pos.x, dy = b.pos.y - a.pos.y, dz = b.pos.z - a.pos.z;
+                var distSq = dx*dx + dy*dy + dz*dz;
+                var dist = Math.sqrt(distSq);
+                if(dist === 0) { dist = 0.1; dx = 0.1; } 
+                var combinedRad = a.data.radius + b.data.radius;
+                var isBonded = (indexOfVal(a.connected, b.id) !== -1);
+
+                if (!isBonded && dist < combinedRad * 1.5) {
+                    if (a.connected.length < a.data.maxBonds && b.connected.length < b.data.maxBonds) {
+                        createBond(a, b); isBonded = true;
+                    }
+                }
+
+                if (isBonded) {
+                    var f = (dist - combinedRad) * 0.1; 
+                    if (currentTempK > 3500 && dist > combinedRad * 3) {
+                        var idxA = indexOfVal(a.connected, b.id); if (idxA > -1) a.connected.splice(idxA, 1);
+                        var idxB = indexOfVal(b.connected, a.id); if (idxB > -1) b.connected.splice(idxB, 1);
+                        toRemoveBonds.push({a: a, b: b}); continue;
+                    }
+                    
+                    var dampX = (b.vel.x - a.vel.x) * 0.15;
+                    var dampY = (b.vel.y - a.vel.y) * 0.15;
+                    var dampZ = (b.vel.z - a.vel.z) * 0.15;
+
+                    a.force.x += (dx/dist)*f + dampX; a.force.y += (dy/dist)*f + dampY; a.force.z += (dz/dist)*f + dampZ;
+                    b.force.x -= (dx/dist)*f + dampX; b.force.y -= (dy/dist)*f + dampY; b.force.z -= (dz/dist)*f + dampZ;
+                } 
+                
+                if (dist < combinedRad * 1.0) {
+                    var rep = Math.pow(combinedRad / dist, 2) * -5; 
+                    a.force.x += (dx/dist)*rep; a.force.y += (dy/dist)*rep; a.force.z += (dz/dist)*rep;
+                    b.force.x -= (dx/dist)*rep; b.force.y -= (dy/dist)*rep; b.force.z -= (dz/dist)*rep;
+                } else if (!isBonded && dist < combinedRad * 4) {
+                    var vdwForce = 0;
+                    if (currentTempK < predictedBoil && !isAnalyzing) {
+                        vdwForce = 0.01 * (predictedBoil - currentTempK) / 100;
+                        if (vdwForce > 5) vdwForce = 5; 
+                        if (currentTempK < predictedMelt) vdwForce *= 1.5; 
+                    }
+                    a.force.x += (dx/dist)*vdwForce; a.force.y += (dy/dist)*vdwForce; a.force.z += (dz/dist)*vdwForce;
+                    b.force.x -= (dx/dist)*vdwForce; b.force.y -= (dy/dist)*vdwForce; b.force.z -= (dz/dist)*vdwForce;
+                }
+            }
+        }
+
+        for (var k = 0; k < toRemoveBonds.length; k++) {
+            for (var m = bonds.length - 1; m >= 0; m--) {
+                if ((bonds[m].a === toRemoveBonds[k].a && bonds[m].b === toRemoveBonds[k].b) || 
+                    (bonds[m].a === toRemoveBonds[k].b && bonds[m].b === toRemoveBonds[k].a)) bonds.splice(m, 1);
+            }
+        }
+
+        for (var i = 0; i < atoms.length; i++) {
+            var a = atoms[i];
+            
+            var ax = a.force.x / a.data.mass;
+            var ay = a.force.y / a.data.mass;
+            var az = a.force.z / a.data.mass;
+            var aMag = Math.sqrt(ax*ax + ay*ay + az*az);
+            var MAX_ACC = 8.0; 
+            if (aMag > MAX_ACC) { ax = (ax/aMag)*MAX_ACC; ay = (ay/aMag)*MAX_ACC; az = (az/aMag)*MAX_ACC; }
+
+            a.vel.x += ax; a.vel.y += ay; a.vel.z += az;
+            
+            var vMag = Math.sqrt(a.vel.x*a.vel.x + a.vel.y*a.vel.y + a.vel.z*a.vel.z);
+            var MAX_VEL = 18.0;
+            if (vMag > MAX_VEL) { a.vel.x = (a.vel.x/vMag)*MAX_VEL; a.vel.y = (a.vel.y/vMag)*MAX_VEL; a.vel.z = (a.vel.z/vMag)*MAX_VEL; }
+            
+            var damp = 0.95; 
+            if (!isAnalyzing) {
+                if (currentTempK > predictedBoil) damp = 0.99; 
+                else if (currentTempK < predictedMelt) damp = 0.85; 
+            }
+
+            a.vel.x *= damp; a.vel.y *= damp; a.vel.z *= damp;
+            a.pos.x += a.vel.x; a.pos.y += a.vel.y; a.pos.z += a.vel.z;
+        }
+
+        if (!isAnalyzing) evaluateStateOfMatter();
+    }
+
+    function evaluateStateOfMatter() {
+        var prevState = sysState;
+        if (atoms.length === 0) {
+            sysState = "Nincs atom"; sysMotion = "-";
+        } else {
+            if (predictedBoil === 0) { predictedMelt = 273; predictedBoil = 373; }
+            if (currentTempK > predictedBoil) { sysState = "Gáz"; sysMotion = "Ütköző / Repülő"; } 
+            else if (currentTempK > predictedMelt) { sysState = "Folyadék"; sysMotion = "Gördülő / Áramló"; } 
+            else { sysState = "Szilárd"; sysMotion = "Rezgő"; }
+        }
+        
+        if (prevState !== "Nincs atom" && prevState !== sysState) {
+            if (prevState === "Szilárd" && sysState === "Gáz") sysMotion = "Szublimáció! (Rezgő -> Repülő)";
+            else if (prevState === "Gáz" && sysState === "Szilárd") sysMotion = "Depozíció/Kristályosodás!";
+            else if (prevState === "Folyadék" && sysState === "Szilárd") sysMotion = "Fagyás/Kristályosodás!";
+            else if (prevState === "Szilárd" && sysState === "Folyadék") sysMotion = "Olvadás!";
+            else if (prevState === "Folyadék" && sysState === "Gáz") sysMotion = "Forrás/Párolgás!";
+            else if (prevState === "Gáz" && sysState === "Folyadék") sysMotion = "Lecsapódás (Kondenzáció)!";
+        }
+        document.getElementById('stateDisplay').innerText = sysState;
+        document.getElementById('motionDisplay').innerText = sysMotion;
+    }
+
+    function render() {
+        ctx.fillStyle = '#0a0a0a';
+        ctx.fillRect(0, 0, width, height);
+        
+        if (isAnalyzing) return; 
+        
+        var cx = Math.cos(rotX), sx = Math.sin(rotX);
+        var cy = Math.cos(rotY), sy = Math.sin(rotY);
+
+        var b = isLatticeMode ? spaceBounds * 3 : spaceBounds; 
+        var corners = [
+            {x:-b, y:-b, z:-b}, {x:b, y:-b, z:-b}, {x:b, y:-b, z:b}, {x:-b, y:-b, z:b},
+            {x:-b, y:b, z:-b}, {x:b, y:b, z:-b}, {x:b, y:b, z:b}, {x:-b, y:b, z:b}
+        ];
+        var edges = [[0,1], [1,2], [2,3], [3,0], [4,5], [5,6], [6,7], [7,4], [0,4], [1,5], [2,6], [3,7]];
+        
+        var projCorners = [];
+        for(var i=0; i<corners.length; i++) {
+            var x2 = corners[i].x * cy - corners[i].z * sy, z2 = corners[i].z * cy + corners[i].x * sy;
+            var y3 = corners[i].y * cx - z2 * sx, z3 = z2 * cx + corners[i].y * sx;
+            var scale = camZ / (camZ + z3);
+            projCorners.push({ px: x2 * scale + width / 2, py: y3 * scale + height / 2, z3: z3 });
+        }
+        
+        ctx.lineWidth = 1; ctx.strokeStyle = "rgba(0, 255, 204, 0.15)";
+        for(var i=0; i<edges.length; i++) {
+            var p1 = projCorners[edges[i][0]], p2 = projCorners[edges[i][1]];
+            if (p1.z3 > -camZ && p2.z3 > -camZ) {
+                ctx.beginPath(); ctx.moveTo(p1.px, p1.py); ctx.lineTo(p2.px, p2.py); ctx.stroke();
+            }
+        }
+
+        var projectedAtoms = [];
+        for (var i = 0; i < atoms.length; i++) {
+            var a = atoms[i];
+            var x2 = a.pos.x * cy - a.pos.z * sy, z2 = a.pos.z * cy + a.pos.x * sy;
+            var y3 = a.pos.y * cx - z2 * sx, z3 = z2 * cx + a.pos.y * sx;
+            var scale = camZ / (camZ + z3);
+            projectedAtoms.push({ original: a, px: x2 * scale + width / 2, py: y3 * scale + height / 2, scale: scale, z3: z3 });
+        }
+
+        projectedAtoms.sort(function(a, b) { return b.z3 - a.z3; });
+
+        ctx.lineWidth = 4;
+        for (var i = 0; i < bonds.length; i++) {
+            var bd = bonds[i], pA = null, pB = null;
+            for (var j = 0; j < projectedAtoms.length; j++) {
+                if (projectedAtoms[j].original === bd.a) pA = projectedAtoms[j];
+                if (projectedAtoms[j].original === bd.b) pB = projectedAtoms[j];
+            }
+            if (pA && pB && isFinite(pA.scale) && isFinite(pB.scale)) {
+                ctx.beginPath(); ctx.moveTo(pA.px, pA.py); ctx.lineTo(pB.px, pB.py);
+                var alpha = Math.max(0.1, 1 - ((pA.z3 + pB.z3)/2 / 1500));
+                ctx.strokeStyle = "rgba(200, 200, 200, " + alpha + ")"; ctx.stroke();
+            }
+        }
+
+        for (var i = 0; i < projectedAtoms.length; i++) {
+            var pa = projectedAtoms[i];
+            if (pa.scale < 0.05 || !isFinite(pa.scale) || pa.scale > 50) continue; 
+            
+            var r = pa.original.data.radius * pa.scale;
+            var alpha = Math.max(0.2, 1 - (pa.z3 / 1500));
+            
+            ctx.beginPath(); ctx.arc(pa.px, pa.py, Math.max(2, r), 0, Math.PI * 2);
+            var grad = ctx.createRadialGradient(pa.px - r*0.3, pa.py - r*0.3, r*0.1, pa.px, pa.py, r);
+            grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.5, pa.original.data.color); grad.addColorStop(1, '#000000'); 
+            ctx.fillStyle = grad; ctx.fill();
+            
+            if (r > 6) {
+                ctx.fillStyle = "rgba(255,255,255," + (alpha*0.8) + ")";
+                ctx.font = "bold " + Math.max(9, r*0.8) + "px sans-serif";
+                ctx.textAlign = "center"; ctx.textBaseline = "middle";
+                ctx.fillText(pa.original.symbol, pa.px, pa.py);
+            }
+        }
+    }
+
+    function animate() { 
+        if(!isAnalyzing && !isLatticeMode) updatePhysics(); 
+        render(); 
+        requestAnimationFrame(animate); 
+    }
+    animate(); 
+
+    function startAnalysis() {
+        if (atoms.length === 0) { log("A tér üres. Kérlek dobj be atomokat az elemzéshez!", "err"); return; }
+        isAnalyzing = true; analysisProgress = 0;
+        document.getElementById('loaderContainer').style.display = 'flex';
+        document.getElementById('progressContainer').style.display = 'block';
+        document.getElementById('progressBar').style.width = '0%';
+        analyzeStep();
+    }
+
+    function analyzeStep() {
+        analysisProgress += 2;
+        document.getElementById('progressBar').style.width = analysisProgress + '%';
+        for(var k=0; k<5; k++) updatePhysics();
+        if (analysisProgress < 100) { requestAnimationFrame(analyzeStep); } else { finishAnalysis(); }
+    }
+
+    function finishAnalysis() {
+        isAnalyzing = false;
+        document.getElementById('loaderContainer').style.display = 'none';
+        document.getElementById('progressContainer').style.display = 'none';
+        document.getElementById('log').innerHTML = ""; 
+        log("--- VÉGLEGES LABORATÓRIUMI KIÉRTÉKELÉS ---", "warn");
+        document.getElementById('analysisPanel').style.display = 'block';
+
+        var formulaCount = {}; var totalMass = 0; var freeRadicals = 0; var isSpaceStable = true;
+        var hasMetal = false; var hasNonMetal = false; var maxValence = 0; var totalValence = 0;
+
+        for (var i = 0; i < atoms.length; i++) {
+            var a = atoms[i];
+            formulaCount[a.symbol] = (formulaCount[a.symbol] || 0) + 1;
+            totalMass += a.data.mass;
+            
+            var v = a.data.valence;
+            totalValence += v;
+            if (v > maxValence) maxValence = v;
+
+            var isMetal = (NonMetals.indexOf(a.symbol) === -1);
+            if (isMetal) hasMetal = true; else hasNonMetal = true;
+
+            if (a.data.maxBonds > 0) {
+                var missingBonds = Math.abs(a.data.valence - a.connected.length);
+                freeRadicals += missingBonds;
+                if (missingBonds > 0) isSpaceStable = false;
+            }
+        }
+
+        var formulaStr = ""; var keys = Object.keys(formulaCount);
+        if (formulaCount['C']) { formulaStr += "C" + (formulaCount['C'] > 1 ? formulaCount['C'] : ""); keys = keys.filter(function(k){ return k !== 'C'; });
+            if (formulaCount['H']) { formulaStr += "H" + (formulaCount['H'] > 1 ? formulaCount['H'] : ""); keys = keys.filter(function(k){ return k !== 'H'; }); }
+        }
+        keys.sort();
+        for (var i = 0; i < keys.length; i++) formulaStr += keys[i] + (formulaCount[keys[i]] > 1 ? formulaCount[keys[i]] : "");
+
+        log("<strong>Összegképlet:</strong> <span style='font-size:16px;color:#fff;'>" + formulaStr + "</span>");
+        log("<strong>Moláris tömeg:</strong> " + totalMass.toFixed(2) + " g/mol");
+        
+        var mathStable = (totalValence % 2 === 0) && (maxValence <= (totalValence - maxValence));
+        if (hasMetal && !hasNonMetal) mathStable = true; 
+        
+        var isStable = (mathStable && isSpaceStable && freeRadicals === 0) || (hasMetal && !hasNonMetal);
+        
+        if (isStable) {
+            log("<br><span style='color:#00ff00; font-weight:bold;'>A szerkezet stabil és létrejöhet.</span><br>");
+        } else {
+            log("<br><span style='color:#ff3333; font-weight:bold;'>A szerkezet szétesne és nem lenne képes a jelen állapotában fenn maradni.</span><br>");
+        }
+
+        var extraInfo = "";
+        if (KnownCompounds[formulaStr]) {
+            predictedMelt = KnownCompounds[formulaStr].melt; predictedBoil = KnownCompounds[formulaStr].boil;
+            extraInfo = " (Ismert: " + KnownCompounds[formulaStr].name + ") - " + KnownCompounds[formulaStr].info;
+        } else {
+            predictedBoil = (totalMass * 1.5) + ((formulaCount['H']>0 && formulaCount['O']>0) ? 150 : 0);
+            if (hasMetal && !hasNonMetal) { predictedMelt = totalMass * 15; predictedBoil = totalMass * 25; extraInfo = "Ötvözet, fémötvözet vagy fémes keverék."; } 
+            else if (hasMetal && hasNonMetal) { predictedMelt = totalMass * 10; predictedBoil = totalMass * 18; extraInfo = "Szervetlen (valószínűleg ionos) vegyület."; }
+            else if (formulaCount['C']) { predictedMelt = predictedBoil * 0.4; extraInfo = "Szerves kémiai molekula."; }
+            else { predictedMelt = predictedBoil * 0.6; extraInfo = "Ismeretlen szervetlen molekula."; }
+        }
+
+        log("<strong>Olvadáspont:</strong> ~" + (predictedMelt-273).toFixed(0) + "°C | <strong>Forráspont:</strong> ~" + (predictedBoil-273).toFixed(0) + "°C");
+        if(extraInfo !== "") log("<strong>Infó:</strong> " + extraInfo, "info");
+        
+        evaluateStateOfMatter();
+
+        var elecCond = "";
+        var thermCond = "";
+        
+        if (hasMetal && !hasNonMetal) {
+            elecCond = "<span style='color:#00ff00;'>Kiváló</span> (delokalizált elektronok)";
+            thermCond = "<span style='color:#00ff00;'>Kiváló</span>";
+        } else if (hasMetal && hasNonMetal) {
+            if (sysState === "Folyadék") {
+                elecCond = "<span style='color:#00ffcc;'>Jó</span> (szabad ionok az olvadékban)";
+            } else if (sysState === "Gáz") {
+                elecCond = "<span style='color:#ff3333;'>Szigetelő</span> (gáz állapot)";
+            } else {
+                elecCond = "<span style='color:#ff3333;'>Szigetelő</span> (szilárd ionrácsban kötött ionok)";
+            }
+            thermCond = "<span style='color:#ffcc00;'>Közepes / Gyenge</span>";
+        } else if (!hasMetal && hasNonMetal) {
+            var isAtomLattice = (formulaCount['C'] > 2 || formulaCount['Si'] > 2) && Object.keys(formulaCount).length === 1;
+            if (isAtomLattice) {
+                elecCond = formulaCount['Si'] ? "<span style='color:#00ffcc;'>Félvezető</span>" : "<span style='color:#ffcc00;'>Változó</span> (Gyémánt: szigetelő, Grafit: vezető)";
+                thermCond = "<span style='color:#00ff00;'>Kiváló</span> (erős rácsrezgések)";
+            } else {
+                elecCond = "<span style='color:#ff3333;'>Szigetelő</span> (nincsenek szabad töltéshordozók)";
+                thermCond = "<span style='color:#ff3333;'>Gyenge</span> (hőszigetelő)";
+            }
+        }
+        
+        log("<strong>Elektromos vezetés:</strong> " + elecCond + "<br><strong>Hővezetés:</strong> " + thermCond);
+        
+        var matColor = "rgba(150, 150, 150, 0.7)"; 
+        if (atoms.length > 0) {
+            var dominantSym = Object.keys(formulaCount).reduce(function(a, b){ return formulaCount[a] > formulaCount[b] ? a : b });
+            matColor = Elements[dominantSym].color;
+            if (sysState !== "Szilárd") matColor = matColor.replace(')', ', 0.6)').replace('rgb', 'rgba');
+        }
+        if (formulaStr === "H2O") matColor = "rgba(50, 150, 255, 0.6)"; 
+        drawBeaker(sysState, matColor);
+    }
+
+    function enterLatticeView() {
+        if (atoms.length === 0) return;
+        isLatticeMode = true;
+        
+        document.getElementById('ui').style.display = 'none';
+        document.getElementById('latticeUI').style.display = 'block';
+        
+        savedAtoms = [];
+        var idMap = {};
+        for(var i=0; i<atoms.length; i++) {
+            var a = atoms[i];
+            var clone = new Atom(a.symbol, a.pos.x, a.pos.y, a.pos.z);
+            clone.id = a.id; 
+            savedAtoms.push(clone);
+            idMap[a.id] = clone;
+        }
+        
+        savedBonds = [];
+        for(var i=0; i<bonds.length; i++) {
+            savedBonds.push({ aId: bonds[i].a.id, bId: bonds[i].b.id });
+        }
+        
+        camZ = 1200; 
+        generateLattice();
+    }
+
+    function generateLattice() {
+        var count = parseInt(document.getElementById('latticeCount').value) || 2;
+        if(count < 1) count = 1;
+        if(count > 5) count = 5; 
+        
+        atoms = [];
+        bonds = [];
+        
+        var minX=9999, maxX=-9999, minY=9999, maxY=-9999, minZ=9999, maxZ=-9999;
+        for(var i=0; i<savedAtoms.length; i++) {
+            var p = savedAtoms[i].pos;
+            if(p.x < minX) minX = p.x; if(p.x > maxX) maxX = p.x;
+            if(p.y < minY) minY = p.y; if(p.y > maxY) maxY = p.y;
+            if(p.z < minZ) minZ = p.z; if(p.z > maxZ) maxZ = p.z;
+        }
+        var spanX = (maxX - minX) || 20;
+        var spanY = (maxY - minY) || 20;
+        var spanZ = (maxZ - minZ) || 20;
+        
+        var spacingX = spanX + 40;
+        var spacingY = spanY + 40;
+        var spacingZ = spanZ + 40;
+        
+        var offsetX = ((count - 1) * spacingX) / 2;
+        var offsetY = ((count - 1) * spacingY) / 2;
+        var offsetZ = ((count - 1) * spacingZ) / 2;
+
+        for(var x=0; x<count; x++) {
+            for(var y=0; y<count; y++) {
+                for(var z=0; z<count; z++) {
+                    
+                    var idMapping = {};
+                    var newAtomsMap = {};
+                    
+                    for(var i=0; i<savedAtoms.length; i++) {
+                        var sa = savedAtoms[i];
+                        var newA = new Atom(sa.symbol, sa.pos.x + (x * spacingX) - offsetX, sa.pos.y + (y * spacingY) - offsetY, sa.pos.z + (z * spacingZ) - offsetZ);
+                        newA.vel.x = 0; newA.vel.y = 0; newA.vel.z = 0; 
+                        atoms.push(newA);
+                        idMapping[sa.id] = newA.id;
+                        newAtomsMap[newA.id] = newA;
+                    }
+                    
+                    for(var i=0; i<savedBonds.length; i++) {
+                        var sb = savedBonds[i];
+                        var a1 = newAtomsMap[idMapping[sb.aId]];
+                        var a2 = newAtomsMap[idMapping[sb.bId]];
+                        if(a1 && a2) {
+                            a1.connected.push(a2.id);
+                            a2.connected.push(a1.id);
+                            bonds.push({ a: a1, b: a2, idealDist: a1.data.radius + a2.data.radius });
+                        }
+                    }
+                }
+            }
+        }
+
+        document.getElementById('latticeInfo').innerHTML = evaluateLatticeText() + "<br><br><strong>Rács Statisztika:</strong><br>Összes megjelenített atom: " + atoms.length + "<br>Kötések száma a rácsban: " + bonds.length;
+    }
+
+    function exitLatticeView() {
+        isLatticeMode = false;
+        
+        document.getElementById('latticeUI').style.display = 'none';
+        document.getElementById('ui').style.display = 'block';
+        
+        atoms = [];
+        bonds = [];
+        var idMapping = {};
+        var newAtomsMap = {};
+        for(var i=0; i<savedAtoms.length; i++) {
+            var sa = savedAtoms[i];
+            var newA = new Atom(sa.symbol, sa.pos.x, sa.pos.y, sa.pos.z);
+            atoms.push(newA);
+            idMapping[sa.id] = newA.id;
+            newAtomsMap[newA.id] = newA;
+        }
+        for(var i=0; i<savedBonds.length; i++) {
+            var sb = savedBonds[i];
+            var a1 = newAtomsMap[idMapping[sb.aId]];
+            var a2 = newAtomsMap[idMapping[sb.bId]];
+            if(a1 && a2) {
+                a1.connected.push(a2.id);
+                a2.connected.push(a1.id);
+                bonds.push({ a: a1, b: a2, idealDist: a1.data.radius + a2.data.radius });
+            }
+        }
+        camZ = 700; 
+    }
+
+    function evaluateLatticeText() {
+        var hasMetal = false; 
+        var hasNonMetal = false;
+        var isCarbonOrSilicon = false;
+
+        for (var i = 0; i < savedAtoms.length; i++) {
+            var sym = savedAtoms[i].symbol;
+            var isMetal = (NonMetals.indexOf(sym) === -1);
+            if (isMetal) hasMetal = true; else hasNonMetal = true;
+            
+            if (sym === 'C' || sym === 'Si') isCarbonOrSilicon = true;
+        }
+
+        if (hasMetal && !hasNonMetal) {
+            return "<strong>Rácstípus:</strong> Fémrács<br><strong>Rácspontokon:</strong> Fématomok törzsei (Kationok)<br><strong>Kötőerő:</strong> Fémes kötés (delokalizált elektronok)<br><strong>Jellemző mozgás:</strong> Az elektronok gázszerűen áramlanak, a kationok a rácspontokon rezegnek.";
+        } else if (hasMetal && hasNonMetal) {
+            return "<strong>Rácstípus:</strong> Ionrács<br><strong>Rácspontokon:</strong> Kationok és Anionok<br><strong>Kötőerő:</strong> Ionos kötés (elektrosztatikus vonzás)<br><strong>Jellemző mozgás:</strong> A rácspontok körül kötött rezgőmozgás.";
+        } else if (!hasMetal && hasNonMetal) {
+            if (isCarbonOrSilicon && savedAtoms.length > 2) {
+                return "<strong>Rácstípus:</strong> Atomrács (Kovalens hálózat)<br><strong>Rácspontokon:</strong> Atomok<br><strong>Kötőerő:</strong> Erős kovalens kötés<br><strong>Jellemző mozgás:</strong> Erősen kötött, kis amplitúdójú rezgőmozgás. Extrém magas olvadáspont.";
+            } else {
+                return "<strong>Rácstípus:</strong> Molekularács<br><strong>Rácspontokon:</strong> Teljes molekulák<br><strong>Kötőerő:</strong> Másodrendű kötések (diszperziós, dipól-dipól vagy H-híd)<br><strong>Jellemző mozgás:</strong> A molekulák közt csak gyenge vonzás hat, a rács viszonylag könnyen felbomlik.";
+            }
+        } else {
+            return "Túl kevés részecske a rács pontos megállapításához.";
+        }
+    }
+
+    function drawBeaker(state, colorStr) {
+        bCtx.clearRect(0, 0, 100, 120);
+        bCtx.strokeStyle = "rgba(255,255,255,0.7)"; bCtx.lineWidth = 3;
+        bCtx.beginPath(); bCtx.moveTo(20, 10); bCtx.lineTo(20, 100); bCtx.arc(30, 100, 10, Math.PI, Math.PI/2, true); 
+        bCtx.lineTo(70, 110); bCtx.arc(70, 100, 10, Math.PI/2, 0, true); bCtx.lineTo(80, 10); bCtx.stroke();
+        
+        bCtx.fillStyle = colorStr;
+        if (state === "Szilárd") {
+            bCtx.beginPath(); bCtx.moveTo(25, 105); bCtx.lineTo(40, 80); bCtx.lineTo(60, 85); bCtx.lineTo(75, 105); bCtx.fill();
+        } else if (state === "Folyadék") {
+            bCtx.beginPath(); bCtx.moveTo(22, 60); bCtx.quadraticCurveTo(50, 65, 78, 60); bCtx.lineTo(78, 100); 
+            bCtx.quadraticCurveTo(78, 108, 70, 108); bCtx.lineTo(30, 108); bCtx.quadraticCurveTo(22, 108, 22, 100); bCtx.fill();
+        } else {
+            for(var p=0; p<15; p++) { bCtx.beginPath(); bCtx.arc(25 + Math.random()*50, 20 + Math.random()*80, 3, 0, Math.PI*2); bCtx.fill(); }
+        }
+    }
+</script>
+</body>
+</html>
